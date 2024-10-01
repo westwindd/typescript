@@ -1,0 +1,306 @@
+<!-- src/views/index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Chat Application</title>
+  <style>
+    body { font-family: Arial, sans-serif; }
+    #chat-container { max-width: 800px; margin: 0 auto; }
+    #user-info { display: flex; justify-content: space-between; align-items: center; }
+    #channels { margin-bottom: 10px; }
+    #channel-management { margin-bottom: 10px; }
+    #private-messaging { margin-bottom: 10px; }
+    #messages { list-style-type: none; padding: 0; height: 400px; overflow-y: scroll; border: 1px solid #ccc; margin-bottom: 10px; }
+    #messages li { padding: 5px; }
+    #form { display: flex; }
+    #input { flex: 1; padding: 10px; }
+    #form button { padding: 10px; }
+  </style>
+</head>
+<body>
+  <div id="chat-container">
+    <div id="user-info">
+      <h2>Welcome, <span id="username-display"></span></h2>
+      <button id="logout-button">Sign Out</button>
+    </div>
+    <div id="channels">
+      <label for="channel-select">Current Channel:</label>
+      <select id="channel-select"></select>
+      <button id="join-channel-button">Join Channel</button>
+      <button id="leave-channel-button">Leave Channel</button>
+      <input type="text" id="new-channel-name" placeholder="New Channel Name" />
+      <button id="create-channel-button">Create Channel</button>
+    </div>
+    <div id="channel-management" style="display: none;">
+      <h3>Manage Channel</h3>
+      <label for="invite-user-select">Invite User:</label>
+      <select id="invite-user-select">
+        <option value="">Select a user</option>
+      </select>
+      <button id="invite-user-button">Invite</button>
+    </div>
+    <div id="private-messaging">
+      <label for="user-select">Send a private message to:</label>
+      <select id="user-select">
+        <option value="">Select a user</option>
+      </select>
+      <input type="text" id="private-input" placeholder="Type your private message..." />
+      <button id="send-private-button">Send Private Message</button>
+    </div>
+    <ul id="messages"></ul>
+    <form id="form" action="">
+      <input id="input" autocomplete="off" placeholder="Type your message..." />
+      <button>Send</button>
+    </form>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const usernameDisplay = document.getElementById('username-display');
+    const logoutButton = document.getElementById('logout-button');
+    const channelSelect = document.getElementById('channel-select');
+    const joinChannelButton = document.getElementById('join-channel-button');
+    const leaveChannelButton = document.getElementById('leave-channel-button');
+    const createChannelButton = document.getElementById('create-channel-button');
+    const newChannelNameInput = document.getElementById('new-channel-name');
+    const channelManagement = document.getElementById('channel-management');
+    const inviteUserSelect = document.getElementById('invite-user-select');
+    const inviteUserButton = document.getElementById('invite-user-button');
+    const userSelect = document.getElementById('user-select');
+    const privateInput = document.getElementById('private-input');
+    const sendPrivateButton = document.getElementById('send-private-button');
+    const messages = document.getElementById('messages');
+    const form = document.getElementById('form');
+    const input = document.getElementById('input');
+
+    let username;
+    let userId;
+    let currentChannel = 'General'; // Default channel
+    let allUsers = [];
+
+    // Fetch user session data from the server
+    async function getSession() {
+      const response = await fetch('/session', { credentials: 'include' });
+      if (response.ok) {
+        const data = await response.json();
+        username = data.username;
+        userId = data.userId;
+        usernameDisplay.textContent = username;
+        initializeSocket();
+      } else {
+        window.location.href = '/login.html';
+      }
+    }
+
+    function initializeSocket() {
+      const socket = io({ query: { userId, username } });
+
+      // Handle form submission to send messages
+      form.addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        if (input.value) {
+          if (currentChannel) {
+            // Send message to current channel
+            socket.emit('channel message', {
+              from: userId,
+              channel: currentChannel,
+              text: input.value
+            });
+          }
+          input.value = '';
+        }
+      });
+
+      // Receive and display channel messages
+      socket.on('channel message', function(msg) {
+        if (msg.channel === currentChannel) {
+          const item = document.createElement('li');
+          item.textContent = `[${new Date(msg.timestamp).toLocaleTimeString()}] ${msg.from}: ${msg.text}`;
+          messages.appendChild(item);
+          messages.scrollTop = messages.scrollHeight;
+        }
+      });
+
+      // Load message history for a channel
+      socket.on('message history', function(data) {
+        if (data.channel === currentChannel) {
+          messages.innerHTML = ''; // Clear current messages
+          data.messages.forEach(msg => {
+            const item = document.createElement('li');
+            item.textContent = `[${new Date(msg.timestamp).toLocaleTimeString()}] ${msg.from}: ${msg.text}`;
+            messages.appendChild(item);
+          });
+          messages.scrollTop = messages.scrollHeight;
+        }
+      });
+
+      // Update channel list
+      socket.on('channel list', function(channelNames) {
+        channelSelect.innerHTML = '';
+        channelNames.forEach(name => {
+          const option = document.createElement('option');
+          option.value = name;
+          option.textContent = name;
+          channelSelect.appendChild(option);
+        });
+        // Set current channel if not set
+        if (!currentChannel && channelNames.length > 0) {
+          currentChannel = channelNames[0];
+          channelSelect.value = currentChannel;
+        }
+      });
+
+      // Handle joining a channel
+      joinChannelButton.addEventListener('click', function() {
+        const selectedChannel = channelSelect.value;
+        if (selectedChannel) {
+          currentChannel = selectedChannel;
+          socket.emit('join channel', currentChannel);
+          socket.emit('get channel info', currentChannel);
+        }
+      });
+
+      // Handle leaving a channel
+      leaveChannelButton.addEventListener('click', function() {
+        if (currentChannel && currentChannel !== 'General') {
+          socket.emit('leave channel', currentChannel);
+          currentChannel = 'General';
+          socket.emit('get channel info', currentChannel);
+          messages.innerHTML = ''; // Clear messages
+        } else {
+          alert('Cannot leave the General channel.');
+        }
+      });
+
+      // Handle creating a new channel
+      createChannelButton.addEventListener('click', function() {
+        const newChannelName = newChannelNameInput.value.trim();
+        if (newChannelName) {
+          socket.emit('create channel', newChannelName);
+          currentChannel = newChannelName;
+          newChannelNameInput.value = '';
+        }
+      });
+
+      // Update current channel on joining
+      socket.on('joined channel', function(channelName) {
+        currentChannel = channelName;
+        channelSelect.value = channelName;
+        messages.innerHTML = ''; // Clear messages
+        socket.emit('get channel info', currentChannel);
+      });
+
+      // Update on leaving channel
+      socket.on('left channel', function(channelName) {
+        if (currentChannel === channelName) {
+          currentChannel = 'General';
+          channelSelect.value = currentChannel;
+          messages.innerHTML = ''; // Clear messages
+          socket.emit('get channel info', currentChannel);
+        }
+      });
+
+      // Handle channel info
+      socket.on('channel info', function(channelInfo) {
+        if (channelInfo.ownerId === userId) {
+          channelManagement.style.display = 'block';
+          // Populate invite-user-select
+          inviteUserSelect.innerHTML = '<option value="">Select a user</option>';
+          allUsers.forEach(user => {
+            if (user.userId !== userId && !channelInfo.members.includes(user.userId)) {
+              const option = document.createElement('option');
+              option.value = user.userId;
+              option.textContent = user.username;
+              inviteUserSelect.appendChild(option);
+            }
+          });
+        } else {
+          channelManagement.style.display = 'none';
+        }
+      });
+
+      // Handle channel errors
+      socket.on('channel error', function(message) {
+        alert(message);
+      });
+
+      // Handle being invited to a channel
+      socket.on('invited to channel', function(channelName) {
+        alert(`You have been invited to channel: ${channelName}`);
+        // Update channel list
+        socket.emit('join channel', channelName);
+      });
+
+      // Handle inviting users
+      inviteUserButton.addEventListener('click', function() {
+        const inviteeId = inviteUserSelect.value;
+        if (inviteeId) {
+          socket.emit('invite to channel', {
+            channelName: currentChannel,
+            inviteeId: inviteeId,
+          });
+          // Optionally remove invited user from the select
+          inviteUserSelect.removeChild(inviteUserSelect.options[inviteUserSelect.selectedIndex]);
+        }
+      });
+
+      // Handle invite errors
+      socket.on('invite error', function(message) {
+        alert(message);
+      });
+
+      // Send private message
+      sendPrivateButton.addEventListener('click', function() {
+        const selectedUserId = userSelect.value;
+        const messageText = privateInput.value.trim();
+
+        if (selectedUserId && messageText) {
+          socket.emit('private message', {
+            from: userId,
+            to: selectedUserId,
+            text: messageText
+          });
+          privateInput.value = '';
+        }
+      });
+
+      // Receive private messages
+      socket.on('private message', function(msg) {
+        const item = document.createElement('li');
+        item.style.fontWeight = 'bold';
+        item.textContent = `[${new Date(msg.timestamp).toLocaleTimeString()}] Private from ${msg.from}: ${msg.text}`;
+        messages.appendChild(item);
+        messages.scrollTop = messages.scrollHeight;
+      });
+
+      // Update user list
+      socket.on('user list', function(users) {
+        allUsers = users;
+        userSelect.innerHTML = '<option value="">Select a user</option>';
+        users.forEach(user => {
+          if (user.userId !== userId) {
+            const option = document.createElement('option');
+            option.value = user.userId;
+            option.textContent = user.username;
+            userSelect.appendChild(option);
+          }
+        });
+      });
+
+      // Handle logout
+      logoutButton.addEventListener('click', async function () {
+        const response = await fetch('/logout', { credentials: 'include' });
+        if (response.ok) {
+          window.location.href = '/login.html';
+        } else {
+          alert('Logout failed.');
+        }
+      });
+    }
+
+    // Fetch session data on page load
+    getSession();
+  </script>
+</body>
+</html>

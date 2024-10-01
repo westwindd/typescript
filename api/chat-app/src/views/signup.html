@@ -1,0 +1,52 @@
+<!-- src/views/signup.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sign Up</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f0f0f0; }
+        .container { max-width: 400px; margin: 100px auto; background: #fff; padding: 20px; border-radius: 5px; }
+        h1 { text-align: center; }
+        input { width: 100%; padding: 10px; margin: 5px 0; }
+        button { width: 100%; padding: 10px; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Sign Up</h1>
+        <p id="error-message" class="error"></p>
+        <form id="signup-form">
+            <input type="text" id="username" placeholder="Choose a Username" required />
+            <input type="password" id="password" placeholder="Create a Password" required />
+            <button type="submit">Sign Up</button>
+        </form>
+        <p>Already have an account? <a href="/login.html">Login here</a></p>
+    </div>
+
+    <script>
+        document.getElementById('signup-form').addEventListener('submit', async function (e) {
+            e.preventDefault();
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+
+            const response = await fetch('/signup', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ username, password }),
+                credentials: 'include'
+            });
+
+            if (response.ok) {
+                alert('Registration successful! Redirecting to login...');
+                window.location.href = '/login.html';
+            } else {
+                const errorMessage = await response.text();
+                document.getElementById('error-message').textContent = errorMessage;
+            }
+        });
+    </script>
+</body>
+</html>
