@@ -90,12 +90,16 @@ class ChatController {
                     const message = new Message_1.Message(msg.text, user.username, msg.channel);
                     messages[msg.channel] = messages[msg.channel] || [];
                     messages[msg.channel].push(message);
+            
                     // Emit message to all users in the channel
                     channel.members.forEach((userId) => {
-                        users[userId].socket.emit('channel message', message);
+                        if (users[userId]) { // Check if the user still exists
+                            users[userId].socket.emit('channel message', message);
+                        }
                     });
                 }
             });
+            
             // Private messaging
             socket.on('private message', (msg) => {
                 const targetUser = users[msg.to];
